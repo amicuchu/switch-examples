@@ -1,8 +1,15 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <memory.h>
 #include <switch.h>
+
+typedef struct{
+    u16 numExtraDataBytes;
+    u16 numContentRecords;
+    u16 numMetaRecords;
+    u16 padding;
+} NcmContentRecordListingHeader;
 
 void printBuffer(void* buffer, size_t size){
     u8* b = (u8*)buffer;
@@ -80,6 +87,42 @@ void changeMetaType(NcmContentMetaType* metaType){
     }
 }
 
+void printContentType(NcmContentType contentType){
+    if(contentType == NcmContentType_Meta){
+        printf("Meta\n");
+    }else if(contentType == NcmContentType_Program){
+        printf("Program\n");
+    }else if(contentType == NcmContentType_Data){
+        printf("Data\n");
+    }else if(contentType == NcmContentType_Control){
+        printf("Control\n");
+    }else if(contentType == NcmContentType_HtmlDocument){
+        printf("HtmlDocument\n");
+    }else if(contentType == NcmContentType_LegalInformation){
+        printf("LegalInformation\n");
+    }else if(contentType == NcmContentType_DeltaFragment){
+        printf("DeltaFragment\n");
+    }
+}
+
+void printContentRecord(NcmContentInfo record){
+    printf("ContentID: ");
+    for(u8 i=0;i<0x10;i++){
+        printf("%02X", record.content_id.c[i]);
+    }
+    printf("\n");
+
+    u64 contentSize = 0;
+    memcpy(&contentSize, &record.content_id.c, 6);
+
+    printf("Content size: %lu bytes\n", contentSize);
+
+    printf("Content type: ");
+    printContentType(record.content_type);
+
+    printf("Content index: %u\n", record.id_offset);
+}
+
 void listContentMeta(NcmContentMetaType* metaType){
     ncmInitialize();
 
@@ -126,11 +169,26 @@ void listContentMeta(NcmContentMetaType* metaType){
 
         u64 outData;
         void* buffer = malloc(contentRecordSize);
-        ncmContentMetaDatabaseGet(&metaDb, metaKey, &outData, buffer, contentRecordSize);
+        rc = ncmContentMetaDatabaseGet(&metaDb, metaKey, &outData, buffer, contentRecordSize);
+        if(R_FAILED(rc)){
+            printf("Cannot get content records from 0x%016lX\n", metaKey->id);
+            continue;
+        }
 
-        printf("Buffer out data: %lu\n", outData);
+        NcmContentRecordListingHeader* header = (NcmContentRecordListingHeader*)buffer;
 
-        printBuffer(buffer, outData);
+        printf("Extra bytes: %u bytes\n", header->numExtraDataBytes);
+
+        printBuffer(buffer + sizeof(NcmContentRecordListingHeader), header->numExtraDataBytes);
+
+        NcmContentInfo* record = (NcmContentInfo*)(buffer + sizeof(NcmContentRecordListingHeader) + header->numExtraDataBytes);
+        
+        for(u16 z=0; z<header->numContentRecords; z++){
+            printf("Content record %u\n", z);
+            printContentRecord(record[z]);
+        }
+
+        printf("\n");
 
         free(buffer);
     }
